@@ -93,7 +93,7 @@ public:
 	}
 
 private:
-	enum { kMaxRegIndex = 16};
+	enum { kMaxRegIndex = 3};
 
 	class BadExpr : public std::exception {};
 
@@ -109,7 +109,9 @@ private:
 	void push_value(asmjit::X86Assembler& as, double value);
 	void push_value(asmjit::X86Assembler& as, const Lexer::Extra& extra);
 	void pop_value(asmjit::X86Assembler& as, const asmjit::X86XmmReg& tgt);
-	void emit_calc_insn(asmjit::X86Assembler& as, Lexer::Token token);
+	void emit_insn(asmjit::X86Assembler& as,
+			const asmjit::X86XmmReg& first, Lexer::Token token,
+			const asmjit::X86XmmReg& second);
 	void calculate(asmjit::X86Assembler& as, Lexer::Token token);
 
 	bool no_value() const {

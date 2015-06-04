@@ -163,8 +163,8 @@ void JitExpr::push_value(X86Assembler& as, double value) {
 		return;
 	}
 	as.mov(x86::rax, x86::qword_ptr(x86::rsi, offset));
-	as.mov(x86::qword_ptr(x86::rbp, -stack_size), x86::rax);
 	stack_size += 8;
+	as.mov(x86::qword_ptr(x86::rbp, -stack_size), x86::rax);
 }
 
 void JitExpr::push_value(X86Assembler& as, const Lexer::Extra& extra) {
@@ -196,53 +196,63 @@ void JitExpr::pop_value(X86Assembler& as, const X86XmmReg& tgt) {
 	if (stack_size > 0) {
 		as.movsd(tgt, x86::qword_ptr(x86::rbp, -stack_size));
 		stack_size -= 8;
+		return;
 	}
 	if (no_value()) {
 		throw BadExpr();
 	}
-	as.movsd(tgt, xmm[--reg_index]);
+	if (&tgt == &xmm[--reg_index]) {
+		return;
+	}
+	as.movsd(tgt, xmm[reg_index]);
 }
 
-void JitExpr::emit_calc_insn(X86Assembler& as, Lexer::Token token) {
+void JitExpr::emit_insn(X86Assembler& as, const X86XmmReg& first,
+		Lexer::Token token, const X86XmmReg& second) {
 	switch (token) {
 	case Lexer::kPlus:
-		as.addsd(x86::xmm0, x86::xmm1);
+		as.addsd(first, second);
 		break;
 	case Lexer::kSubstract:
-		as.subsd(x86::xmm0, x86::xmm1);
+		as.subsd(first, second);
 		break;
 	case Lexer::kMultiply:
-		as.mulsd(x86::xmm0, x86::xmm1);
+		as.mulsd(first, second);
 		break;
 	case Lexer::kDivide:
-		as.divsd(x86::xmm0, x86::xmm1);
+		as.divsd(first, second);
 		break;
 	case Lexer::kAnd: case Lexer::kOr:
-		as.movq(x86::rax, x86::xmm0);
-		as.movq(x86::rdx, x86::xmm1);
+		as.movq(x86::rax, first);
+		as.movq(x86::rdx, second);
 		if (token == Lexer::kAnd) {
 			as.and_(x86::rax, x86::rdx);
 		} else {
 			as.or_(x86::rax, x86::rdx);
 		}
-		as.movq(x86::xmm0, x86::rax);
+		as.movq(first, x86::rax);
 		break;
 	case Lexer::kEqualTo:
-		as.cmpsd(x86::xmm0, x86::xmm1, 0);
+		as.cmpsd(first, second, 0);
 		break;
 	case Lexer::kLessThan:
-		as.cmpsd(x86::xmm0, x86::xmm1, 1);
+		as.cmpsd(first, second, 1);
 		break;
 	case Lexer::kGreaterThan:
-		as.cmpsd(x86::xmm1, x86::xmm0, 1);
+		as.cmpsd(second, first, 1);
 		break;
 	}
 }
 
 void JitExpr::calculate(X86Assembler& as, Lexer::Token token) {
+	if (stack_size == 0) {
+		emit_insn(as, xmm[reg_index - 2], token, xmm[reg_index - 1]);
+		--reg_index;
+		return;
+	}
 	pop_value(as, x86::xmm1);
 	pop_value(as, x86::xmm0);
-	emit_calc_insn(as, token);
+	emit_insn(as, x86::xmm0, token, x86::xmm1);
 	push_value(as, x86::xmm0);
 }
 
