@@ -4,3 +4,6 @@ all:
 		../jit_expr.cpp \
 		../asmjit/src/asmjit/base/*.cpp \
 		../asmjit/src/asmjit/x86/*.cpp -o ut-jitexpr
+
+clean:
+	rm -f ut-jitexpr

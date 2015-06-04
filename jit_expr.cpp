@@ -2,6 +2,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstring>
+#include <cstdio>
 #include <cassert>
 #include <typeinfo>
 #include <stack>
@@ -15,7 +16,7 @@ bool Lexer::is_operator(Token t) {
 }
 
 int Lexer::precedence(Token t) {
-	return t / 100;
+	return t / 10;
 }
 
 Lexer::Token Lexer::get_token(Extra* x) {
@@ -139,7 +140,7 @@ Lexer::Token Lexer::get_float_literal(Extra* x) {
 		++length;
 		ch = expression[offset + length];
 	}
-	if (sscanf(expression + offset, "%lg", &x->literal) != 1) {
+	if (std::sscanf(expression + offset, "%lg", &x->literal) != 1) {
 		throw BadToken();
 	}
 	offset += length;
@@ -151,8 +152,8 @@ void JitExpr::push_value(X86Assembler& as, const X86XmmReg& src) {
 		as.movsd(xmm[reg_index++], src);
 		return;
 	}
-	as.movsd(x86::qword_ptr(x86::rbp, -stack_size), src);
 	stack_size += 8;
+	as.movsd(x86::qword_ptr(x86::rsp, -stack_size), src);
 }
 
 void JitExpr::push_value(X86Assembler& as, double value) {
@@ -164,21 +165,21 @@ void JitExpr::push_value(X86Assembler& as, double value) {
 	}
 	as.mov(x86::rax, x86::qword_ptr(x86::rsi, offset));
 	stack_size += 8;
-	as.mov(x86::qword_ptr(x86::rbp, -stack_size), x86::rax);
+	as.mov(x86::qword_ptr(x86::rsp, -stack_size), x86::rax);
 }
 
 void JitExpr::push_value(X86Assembler& as, const Lexer::Extra& extra) {
 	if (extra.var.float_) {
-		as.movsd(x86::xmm0, x86::qword_ptr(x86::rdi, extra.var.offset));
-		push_value(as, x86::xmm0);
+		as.movsd(x86::xmm14, x86::qword_ptr(x86::rdi, extra.var.offset));
+		push_value(as, x86::xmm14);
 		return;
 	}
 	as.xor_(x86::rax, x86::rax);
-	as.pxor(x86::xmm0, x86::xmm0);
+	as.pxor(x86::xmm14, x86::xmm14);
 	if (extra.var.size == 4) {
 		as.mov(x86::eax, x86::dword_ptr(x86::rdi, extra.var.offset));
-		as.cvtsi2sd(x86::xmm0, x86::eax);
-		push_value(as, x86::xmm0);
+		as.cvtsi2sd(x86::xmm14, x86::eax);
+		push_value(as, x86::xmm14);
 		return;
 	}
 	Label label(as);
@@ -187,14 +188,14 @@ void JitExpr::push_value(X86Assembler& as, const Lexer::Extra& extra) {
 	as.je(label);
 	as.xor_(x86::rax, x86::rax);
 	as.not_(x86::rax);
-	as.movq(x86::xmm0, x86::rax);
+	as.movq(x86::xmm14, x86::rax);
 	as.bind(label);
-	push_value(as, x86::xmm0);
+	push_value(as, x86::xmm14);
 }
 
 void JitExpr::pop_value(X86Assembler& as, const X86XmmReg& tgt) {
 	if (stack_size > 0) {
-		as.movsd(tgt, x86::qword_ptr(x86::rbp, -stack_size));
+		as.movsd(tgt, x86::qword_ptr(x86::rsp, -stack_size));
 		stack_size -= 8;
 		return;
 	}
@@ -241,6 +242,8 @@ void JitExpr::emit_insn(X86Assembler& as, const X86XmmReg& first,
 	case Lexer::kGreaterThan:
 		as.cmpsd(second, first, 1);
 		break;
+	default:
+		throw BadExpr();
 	}
 }
 
@@ -250,50 +253,50 @@ void JitExpr::calculate(X86Assembler& as, Lexer::Token token) {
 		--reg_index;
 		return;
 	}
-	pop_value(as, x86::xmm1);
-	pop_value(as, x86::xmm0);
-	emit_insn(as, x86::xmm0, token, x86::xmm1);
-	push_value(as, x86::xmm0);
+	pop_value(as, x86::xmm15);
+	pop_value(as, x86::xmm14);
+	emit_insn(as, x86::xmm14, token, x86::xmm15);
+	push_value(as, x86::xmm14);
 }
 
 bool JitExpr::compile(const char* expr) try {
+	assert(function == NULL);
+
 	X86Assembler as(&runtime);
-	std::stack<Lexer::Token> op_stack;
+	std::stack<Lexer::Token> op;
 	Lexer lexer(expr);
 	Lexer::Extra extra;
 	bool has_literal = false;
 
-	as.push(x86::rbp);
-	as.mov(x86::rbp, x86::rsp);
 	for (Lexer::Token token = lexer.get_token(&extra);
 			token != Lexer::kEnd; token = lexer.get_token(&extra)) {
 		if (Lexer::is_operator(token)) {
-			if (op_stack.empty()) {
-				op_stack.push(token);
+			if (op.empty()) {
+				op.push(token);
 				continue;
 			}
-			Lexer::Token top = op_stack.top();
+			Lexer::Token top = op.top();
 			while (Lexer::precedence(token) <= Lexer::precedence(top)) {
-				op_stack.pop();
+				op.pop();
 				calculate(as, top);
-				if (op_stack.empty()) {
+				if (op.empty()) {
 					break;
 				}
-				top = op_stack.top();
+				top = op.top();
 			}
-			op_stack.push(token);
+			op.push(token);
 			continue;
 		}
 		if (token == Lexer::kLeftParenthesis) {
-			op_stack.push(token);
+			op.push(token);
 			continue;
 		}
 		if (token == Lexer::kRightParenthesis) {
-			while (op_stack.top() != Lexer::kLeftParenthesis) {
-				calculate(as, op_stack.top());
-				op_stack.pop();
+			while (op.top() != Lexer::kLeftParenthesis) {
+				calculate(as, op.top());
+				op.pop();
 			}
-			op_stack.pop();
+			op.pop();
 			continue;
 		}
 		if (token == Lexer::kFloatLiteral) {
@@ -308,17 +311,17 @@ bool JitExpr::compile(const char* expr) try {
 		assert(token == Lexer::kVariable);
 		push_value(as, extra);
 	}
-	while (!op_stack.empty()) {
-		Lexer::Token top = op_stack.top();
+	while (!op.empty()) {
+		Lexer::Token top = op.top();
 		calculate(as, top);
-		op_stack.pop();
+		op.pop();
 	}
-	if (reg_index != 3) {
+	if (reg_index != 1) {
 		return false;
 	}
-	as.movq(x86::rax, x86::xmm2);
-	as.movq(x86::xmm0, x86::xmm2);
-	as.pop(x86::rbp);
+	as.movq(x86::rax, x86::xmm0);
+	as.test(x86::eax, x86::eax);
+	as.setne(x86::al);
 	as.ret();
 	function = as.make();
 	return true;

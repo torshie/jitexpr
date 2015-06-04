@@ -2,7 +2,6 @@
 #define JIT_EXPR_H_
 
 #include <asmjit/asmjit.h>
-#include <exception>
 
 struct GarbageFilterPara
 {
@@ -37,18 +36,18 @@ public:
 		kFloatLiteral,
 		kVariable,
 
-		kOr = 100,
-		kAnd = 200,
-		kEqualTo = 300,
-		kGreaterThan = 400,
+		kOr = 10,
+		kAnd = 20,
+		kEqualTo = 30,
+		kGreaterThan = 40,
 		kLessThan,
-		kPlus = 500,
+		kPlus = 50,
 		kSubstract,
-		kMultiply = 600,
+		kMultiply = 60,
 		kDivide,
 	};
 
-	struct BadToken : public std::exception {};
+	struct BadToken {};
 
 	union Extra {
 		struct Variable {
@@ -77,7 +76,7 @@ private:
 class JitExpr {
 public:
 	JitExpr()
-			: xmm(asmjit::x86RegData.xmm), reg_index(2), stack_size(0),
+			: xmm(asmjit::x86RegData.xmm), reg_index(0), stack_size(0),
 			literal_count(0), function(NULL) {}
 
 	bool compile(const char* expr);
@@ -89,13 +88,13 @@ public:
 	template<typename T>
 	T value(const GarbageFilterPara& param) const {
 		typedef T (*FP)(const GarbageFilterPara&);
-		return reinterpret_cast<FP>(function)(param);
+		return (reinterpret_cast<FP>(function))(param);
 	}
 
 private:
-	enum { kMaxRegIndex = 3};
+	enum { kMaxRegIndex = 14};
 
-	class BadExpr : public std::exception {};
+	class BadExpr {};
 
 	const asmjit::X86XmmReg* xmm;
 	int reg_index;

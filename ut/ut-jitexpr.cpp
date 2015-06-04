@@ -219,5 +219,15 @@ int main() {
 		assert(expr.compile("$dTransferTimes + $n1stPureSubDriveDis * $nWalkDis"));
 		assert(expr.value<double>(param) == 43);
 	}
+	{
+		JitExpr expr;
+		assert(expr.compile("$bFindOut1stPureSub && 1==0"));
+		assert(!expr.value<bool>(param));
+	}
+	{
+		JitExpr expr;
+		assert(expr.compile("$bFindOut1stPureSub || 1==0"));
+		assert(expr.value<bool>(param));
+	}
 	return 0;
 }
